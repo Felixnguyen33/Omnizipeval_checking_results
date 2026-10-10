@@ -1,3 +1,0 @@
-dataset_name: gpqa_main
-include: _gpqa_deepseek_r1_cot.yaml
-task: gpqa_main_deepseek_r1_cot

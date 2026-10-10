@@ -1,5 +1,4 @@
-# Same-dataset GPQA / GPQA Diamond runs (5-shot likelihood, task version 2.0).
-lm-eval==0.4.9.1
-# Later generative reruns in this folder were recorded with lm-eval==0.4.11.
-# vLLM is the backend those runs used. Install a GPU build that matches the local CUDA/PyTorch.
-# vllm
+# evaluate.py and check_pair.py: lm-eval 0.4.12 with the vLLM backend.
+# Install a GPU build of vLLM that matches the local CUDA/PyTorch (tested with vllm 0.27.1).
+# lm-eval 0.4.12 = ../lm-evaluation-harness (tag v0.4.12, commit 6d64254). Run pip from this folder.
+-e ../lm-evaluation-harness[vllm]

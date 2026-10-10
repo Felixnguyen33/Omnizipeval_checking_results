@@ -1,3 +1,0 @@
-dataset_name: gpqa_diamond
-include: _gpqa_qwen25_cot_zeroshot.yaml
-task: gpqa_diamond_qwen25_cot_zeroshot

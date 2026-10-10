@@ -1,0 +1,3 @@
+dataset_name: gpqa_diamond
+include: _gpqa_qwen25_report.yaml
+task: gpqa_diamond_qwen25_report

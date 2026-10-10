@@ -1,0 +1,8 @@
+# Versions used to test this protocol (Python 3.11, CUDA 12.6 wheels). Install a GPU-compatible PyTorch first.
+# Package versions are recorded in every manifest; check_pair.py reports any difference between two runs.
+vllm==0.10.0
+torch==2.7.1
+transformers==4.57.1
+tokenizers==0.22.2
+huggingface_hub==0.36.2
+safetensors==0.8.0

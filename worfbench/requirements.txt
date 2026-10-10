@@ -1,6 +1,0 @@
-vllm
-torch
-sentence-transformers
-networkx
-tqdm
-requests

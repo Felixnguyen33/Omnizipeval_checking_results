@@ -1,2 +1,3 @@
 # Harness version used by this protocol. Install a GPU-compatible PyTorch first.
-lm-eval[hf]==0.4.12
+# lm-eval 0.4.12 = ../lm-evaluation-harness (tag v0.4.12, commit 6d64254). Run pip from this folder.
+-e ../lm-evaluation-harness[hf]

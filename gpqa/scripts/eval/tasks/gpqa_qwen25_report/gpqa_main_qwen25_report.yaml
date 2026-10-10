@@ -1,0 +1,3 @@
+dataset_name: gpqa_main
+include: _gpqa_qwen25_report.yaml
+task: gpqa_main_qwen25_report

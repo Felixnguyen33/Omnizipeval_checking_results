@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""Portable gsm8k evaluation with explicit checkpoint and parent tokenizer inputs."""
+"""Portable gsm8k evaluation with explicit checkpoint and parent tokenizer inputs.
+
+Before any weights are loaded, ``common/fairness.checkpoint_report`` checks that the
+checkpoint was compressed from ``--parent-tokenizer`` (the dense parent: identical token
+embeddings), and any ``--expect-bits`` / ``--expect-sparsity``. Failures refuse the run
+unless ``--allow-unverified-parent`` is given; the report is stored in the manifest.
+"""
 import argparse
 import hashlib
 import importlib.metadata
 import json
 from pathlib import Path
 import re
+import sys
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT.parent / "common"))
+import fairness  # noqa: E402  (shared parent/bits/sparsity checks)
 
 
 def identity(value, revision):
@@ -33,19 +42,36 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model", required=True, help="Hub ID or local checkpoint directory")
     p.add_argument("--revision", help="Immutable Hub model commit")
-    p.add_argument("--parent-tokenizer", required=True, help="Dense parent's Hub ID or local tokenizer directory")
+    p.add_argument("--parent-tokenizer", required=True,
+                   help="Dense parent (Hub ID or local directory): its tokenizer is used, and the checkpoint must be "
+                        "compressed from it. For the dense run pass the same value as --model")
     p.add_argument("--parent-revision", help="Immutable dense-parent tokenizer commit")
     p.add_argument("--output", required=True, type=Path, help="New output directory; existing directories are refused")
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--parallelize", action="store_true", help="HF model sharding; use consistently within a cohort")
+    p.add_argument("--expect-bits", type=int, help="Refuse unless the config declares this weight bit width")
+    p.add_argument("--expect-sparsity", type=float, help="Refuse unless sampled sparsity is within 0.02 of this")
+    p.add_argument("--allow-unverified-parent", action="store_true",
+                   help="Run even if checkpoint checks fail; the manifest marks the run unfair")
+    p.add_argument("--smoke", type=int, help="Evaluate only the first N questions (recorded in the protocol, so "
+                                             "check_pair.py refuses to pair it with a full run)")
     args = p.parse_args()
+    if args.smoke is not None and args.smoke < 1:
+        p.error("--smoke must be positive")
     if args.batch_size < 1:
         p.error("batch size must be positive")
     model_id = identity(args.model, args.revision)
     parent_id = identity(args.parent_tokenizer, args.parent_revision)
     if args.output.exists():
         p.error("Output directory already exists; choose a new directory")
+
+    # Parent identity, declared bits and sampled sparsity, before any GPU time is spent.
+    expect = fairness.expect_from_args(args)
+    checks = fairness.checkpoint_report(args.model, args.revision, args.parent_tokenizer, args.parent_revision, expect)
+    if checks["failures"] and not args.allow_unverified_parent:
+        raise SystemExit("Refusing an unfair run:\n  " + "\n  ".join(checks["failures"]) +
+                         "\nFix the checkpoint, or pass --allow-unverified-parent (recorded in the manifest).")
 
     # Heavy dependencies are intentionally imported after argument validation.
     import lm_eval
@@ -73,10 +99,14 @@ def main():
                            "utils.py": hashlib.sha256((ROOT / "utils.py").read_bytes()).hexdigest()},
         "task_sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in task_files},
     }
+    if args.smoke:
+        protocol["smoke"] = args.smoke
     args.output.mkdir(parents=True)
     manifest = {"status": "started", "protocol": protocol, "model": model_id,
                 "quantization_config": config.to_dict().get("quantization_config"),
-                "parent_identity_verified": False}
+                "parent": parent_id, "expect": expect, "checkpoint_checks": checks,
+                "fair_checkpoint": not checks["failures"],
+                "parent_identity_verified": checks["parent"]["status"] == "match"}
 
     def write_manifest():
         (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2, default=serializable) + "\n")
@@ -90,10 +120,10 @@ def main():
         model=model, tasks=tasks, num_fewshot=protocol["num_fewshot"],
         batch_size=args.batch_size, use_cache=None, cache_requests=False,
         apply_chat_template=protocol["chat_template"], fewshot_as_multiturn=True,
-        log_samples=True, random_seed=0, numpy_random_seed=0, torch_random_seed=0, fewshot_random_seed=0,
+        log_samples=True, limit=args.smoke, random_seed=0, numpy_random_seed=0, torch_random_seed=0, fewshot_random_seed=0,
     )
     samples = result.pop("samples")
-    expected = 1319
+    expected = args.smoke or 1319
     for task, rows in samples.items():
         if len(rows) != expected or len({r["doc_id"] for r in rows}) != expected:
             raise ValueError(f"{task}: incomplete or duplicate evaluation")

@@ -1,0 +1,40 @@
+# GPQA 0-shot CoT, Qwen2.5 report setup (arXiv:2412.15115): greedy decoding and the
+# OpenAI simple-evals 0-shot CoT prompt, with simple-evals' seeded choice permutation
+# (random.Random(0), one rng.sample per question in order).
+dataset_path: Idavidrein/gpqa
+tag: gpqa_qwen25_report
+output_type: generate_until
+process_docs: !function utils.process_docs
+training_split: train
+validation_split: train
+test_split: null
+num_fewshot: 0
+doc_to_text: !function utils.doc_to_text
+doc_to_target: answer
+filter_list:
+  # Primary: simple-evals answer regex, "Answer: X", first match after </think>.
+  - name: "strict-match"
+    filter:
+      - function: !function utils.SimpleEvalsFilter
+      - function: "take_first"
+  # Secondary: also accepts \boxed{X}, "The answer is X", trailing "(X)".
+  - name: "flexible-extract"
+    filter:
+      - function: !function utils.FlexibleFilter
+      - function: "take_first"
+generation_kwargs:
+  until:
+    - "<|im_end|>"
+    - "<|endoftext|>"
+    - "<｜end▁of▁sentence｜>"
+  do_sample: false
+  temperature: 0.0
+  top_p: 1.0
+  max_gen_toks: 8192
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+metadata:
+  version: 1.0
+  description: "Qwen2.5 report protocol: GPQA 0-shot CoT, greedy, simple-evals prompt."

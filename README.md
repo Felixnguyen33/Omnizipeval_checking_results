@@ -1,71 +1,24 @@
 # OmnizipEval_checking_results
 
-Each dataset has its own runner, consistency checker and installation instructions:
+The official evaluation codebases behind OmniZipEval (18 benchmarks), each copied at the version used, with clean scripts that state the dataset
+version and every generation setting. Every script takes `MODEL` (a Hugging Face id or a local directory, dense
+or compressed). It defaults to the dense original model, so scripts name only the original models.
 
-- [gsm8k/](gsm8k/README.md) — four-shot chat evaluation and strict boxed-answer scoring.
-- [truthfulqa/](truthfulqa/README.md) — MC1/MC2 likelihood evaluation.
-- [gpqa/](gpqa/README.md) — GPQA main and GPQA Diamond. Shared runs use `lm-eval` 0.4.9.1 and task version 2.0.
-- [worfbench/](worfbench/README.md) — eight-task WorfBench node precision, recall and F1.
+| Codebase | Version | Benchmarks | Scripts | Settings and notes |
+|---|---|---|---|---|
+| [lm-evaluation-harness/](lm-evaluation-harness/OMNIZIPEVAL.md) | EleutherAI v0.4.12 (`6d64254`), unmodified | GSM8K, TruthfulQA, GPQA / GPQA Diamond | `gsm8k/evaluate.py`, `truthfulqa/evaluate.py`, `gpqa/evaluate.py` | task YAMLs and pins in each folder |
+| [LiveCodeBench/](LiveCodeBench/scripts/omnizipeval/README.md) | upstream `28fef95` + local runner patches | LiveCodeBench `codegeneration`, `release_v4` (713 problems) | `scripts/omnizipeval/{qwen25_instruct,deepseek_r1_distill,qwen3}.sh`, `score.py` | per family: n, temperature, max_tokens, stop, context |
+| [LongBench/](LongBench/scripts/omnizipeval/README.md) | THUDM `2e00731` + `\boxed{}` fork commit `1d4aa4c` | LongBench v2 (`THUDM/LongBench-v2@2b48e49`, 503 questions, CoT) | `scripts/omnizipeval/{qwen25_instruct_cot,deepseek_r1_distill_cot,qwen3_moe_cot}.sh` | per family: input cap, CoT/answer budget, sampling, thinking |
+| [WorfBench/](WorfBench/scripts/omnizipeval/README.md) | zjunlp `38a6455` + vLLM runner | WorfBench, 8 tasks, node P/R/F1 | `scripts/omnizipeval/run_worfbench.sh` (1,024 tokens), `run_worfbench_long.sh` (32,768) | greedy, top-p 0.95, `optional_space` parser, pinned scorer |
+| [VLMEvalKit/](VLMEvalKit/EVAL.md) | upstream `0916343` + local patches | POPE, MMBench, MMMU, ScreenSpot v2, Spatial457, RealWorldQA, MTVQA, MM-SafetyBench, MM-Math, We-Math | `scripts/eval/<dataset>.sh` (one per dataset, `FAMILY` = qwen25_vl / llava_next / llava_v15 / qwen3_vl_moe) | each script writes an explicit `--config` JSON: tokens, decoding, pixels, prompt mode, judge |
+| [teval/](teval/README.md) | upstream T-Eval scorer (unmodified, `third_party/`) | T-Eval, 6 sub-capabilities | `teval/evaluate.py` | data pinned by `download_data.py` |
+| [xstest/](xstest/README.md) | official `paul-rottger/xstest@d7bb5bd7` prompts | XSTest, harmful / harmless | `xstest/evaluate.py` | vLLM greedy, 1,024 tokens, Qwen3Guard judge |
 
-```text
-gsm8k/
-  evaluate.py
-  check_pair.py
-  task.yaml
-  utils.py
-  test_scoring.py
-  requirements.txt
-  README.md
-truthfulqa/
-  evaluate.py
-  check_pair.py
-  requirements.txt
-  README.md
-gpqa/
-  README.md
-  requirements.txt
-  scripts/eval/          # launchers and task YAMLs actually used
-worfbench/
-  evaluate.py
-  node_eval.py
-  evaluator/
-  prompts/
-  gold_traj/
-  README.md
-```
+`common/fairness.py` is used by the gsm8k, truthfulqa, gpqa, teval and xstest runners. It checks that a
+compressed checkpoint was produced from the dense parent (identical token embeddings) and has the expected
+bit width or sparsity.
 
-For example, run `python gsm8k/evaluate.py --help` or
-`python truthfulqa/evaluate.py --help`. No `--dataset` flag is needed.
-Both folders can also be used independently.
+Each codebase's README lists its upstream commit, every local change and why, and the settings table.
+Run a dense model and its compressed variants with the same script and environment.
 
-The repository contains source code and instructions only: no historical logs,
-results, weights, credentials or machine-specific model paths.
-
-## What was inconsistent in the original evaluation?
-
-- Some Qwen2.5 pruned checkpoints had a base-model parent but were compared with
-  an Instruct baseline. Selecting the same tokenizer does not fix a weight-parent mismatch.
-- DeepSeek-Llama compressed GSM8K responses contained undecoded byte-level token
-  markers; its dense responses did not. This changed answer extraction.
-- A DeepSeek-Llama GSM8K checkpoint labeled GPTQ-Int4 was actually eight-bit.
-- Historical runs mixed prompting, scoring, model identities and execution settings.
-- The corrected Qwen2.5-3B SparseGPT TruthfulQA pair and corrected 3B pruning GSM8K
-  cohort have stronger matching evidence. Qwen3 MoE TruthfulQA scores reproduce
-  with matching documents and prompts, although hardware parallelism differs.
-
-Before export, saved scores were independently recalculated for 34 complete GSM8K
-runs and 18 TruthfulQA task outputs. All reproduced under their respective original
-scorers. Reproducibility alone does not establish fairness.
-
-Twenty complete GPQA result files (main and Diamond) were checked the same way.
-Nineteen used the Qwen2.5 greedy 0-shot task. One Diamond file used DeepSeek-R1
-sampling with a single draw, and one earlier Diamond file used the stock
-`The answer is` parser, which scored boxed answers as zero. Details are in
-[gpqa/README.md](gpqa/README.md).
-
-## Comparison policy
-
-These scripts use the `checked_v1` protocol. GSM8K uses a different scorer/backend
-from the historical fallback-scored vLLM results. Rerun the baseline and variants
-together; do not mix new scores with old tables. Matching scripts alone cannot fix
-a base-versus-Instruct checkpoint mismatch. Dataset-specific details are in each folder.
+The repository contains source code, dataset settings and run instructions only.

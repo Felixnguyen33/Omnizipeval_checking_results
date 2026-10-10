@@ -1,4 +1,4 @@
-"""Regression checks for previously observed decoding/extraction failures."""
+"""Unit tests for the strict boxed-answer scorer: python -m unittest -v test_scoring.py"""
 import unittest
 
 from check_pair import scorer

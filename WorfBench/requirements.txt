@@ -1,0 +1,7 @@
+sentence_transformers
+openai
+retry
+collections
+itertools
+networkx
+re

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Rescore two checked_v1 output folders and compare their observed protocols."""
+"""Rescore two checked_v1 output folders and compare their observed protocols.
+
+Also fails when either run's checkpoint checks (parent embeddings, expected bits or sparsity)
+failed or were not recorded, when the two runs name different dense parents, or when the
+baseline is not the dense parent itself.
+"""
 import argparse
 import json
 import math
@@ -13,7 +18,7 @@ def unwrap(value):
     return value
 
 
-def audit(folder):
+def rescore(folder):
     manifest = json.loads((folder / "manifest.json").read_text())
     if manifest.get("status") != "complete":
         raise ValueError(f"{folder}: run is incomplete")
@@ -26,7 +31,7 @@ def audit(folder):
         raise ValueError("Unexpected or missing tasks")
     for task in sorted(expected_tasks):
         rows = [json.loads(line) for line in (folder / f"samples_{task}.jsonl").open()]
-        expected = 817
+        expected = manifest["protocol"].get("smoke") or 817
         if len(rows) != expected or len({r["doc_id"] for r in rows}) != expected:
             raise ValueError(f"{task}: missing or duplicate questions")
         observed, values = {}, []
@@ -60,20 +65,32 @@ def main():
     p.add_argument("baseline", type=Path)
     p.add_argument("variant", type=Path)
     args = p.parse_args()
-    base, base_docs, base_scores = audit(args.baseline)
-    variant, variant_docs, variant_scores = audit(args.variant)
+    base, base_docs, base_scores = rescore(args.baseline)
+    variant, variant_docs, variant_scores = rescore(args.variant)
     keys = set(base["protocol"]) | set(variant["protocol"])
     differences = sorted(k for k in keys if base["protocol"].get(k) != variant["protocol"].get(k))
     matched = base_docs == variant_docs
+    checkpoint_problems = []
+    for name, m in (("baseline", base), ("variant", variant)):
+        if "checkpoint_checks" not in m:
+            checkpoint_problems.append(f"{name}: no checkpoint checks recorded in manifest.json")
+        elif not m.get("fair_checkpoint"):
+            checkpoint_problems.append(f"{name} checkpoint checks failed: {m['checkpoint_checks'].get('failures')}")
+    if base.get("parent") != variant.get("parent"):
+        checkpoint_problems.append("the two runs name different dense parents")
+    if base.get("model") != base.get("parent"):
+        checkpoint_problems.append("the baseline is not the dense parent itself")
     print(json.dumps({"saved_scores_verified": True, "baseline_percent": base_scores,
                       "variant_percent": variant_scores, "protocol_differences": differences,
                       "documents_and_prompts_match": matched,
                       "variant_quantization_config": variant.get("quantization_config"),
+                      "checkpoint_problems": checkpoint_problems,
+                      "variant_checkpoint_checks": {k: variant.get("checkpoint_checks", {}).get(k)
+                                                    for k in ("quantization", "sparsity", "parent")},
                       "fairness_certified": False,
-                      "remaining_checks": ["Verify compression parent identity from weight/provenance evidence",
-                                           "Inspect generation truncation and compression calibration settings",
-                                           "Confirm actual quantization bits or weight sparsity"]}, indent=2))
-    raise SystemExit(0 if matched and not differences else 1)
+                      "remaining_checks": ["Inspect generation truncation and compression calibration settings"]},
+                     indent=2, default=str))
+    raise SystemExit(0 if matched and not differences and not checkpoint_problems else 1)
 
 
 if __name__ == "__main__":

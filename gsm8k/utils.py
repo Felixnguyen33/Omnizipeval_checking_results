@@ -1,4 +1,4 @@
-"""Fixed four-shot prompts and strict final boxed-answer scoring (new protocol)."""
+"""Fixed four-shot prompts and strict final boxed-answer scoring."""
 import re
 from decimal import Decimal, InvalidOperation
 

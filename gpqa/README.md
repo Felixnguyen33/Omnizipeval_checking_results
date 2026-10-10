@@ -1,117 +1,104 @@
 # GPQA and GPQA Diamond
 
-Scripts in this folder are the launchers that produced the OmniZipEval GPQA
-runs. Run them from this folder. Outputs go to `outputs/` and are not part of
-this repository.
+`evaluate.py` evaluates one checkpoint on GPQA Diamond and GPQA Main with lm-eval
+and vLLM, using the tasks in `scripts/eval/tasks/gpqa_qwen25_report/`.
+`check_pair.py` checks that a dense run and a compressed-variant run are
+comparable. Protocol settings are constants in `evaluate.py`; only model
+identity, output directory, expectations and hardware are options.
 
-```text
-scripts/eval/gpqa.sh
-scripts/eval/run_gpqa_qwen25_7b_instruct.sh
-scripts/eval/run_gpqa_deepseek_r1_llama8b.sh
-scripts/eval/run_gpqa_deepseek_r1_llama8b_qwen25_protocol.sh
-scripts/eval/run_gpqa_deepseek_r1_smoothquant_qwen25_protocol.sh
-scripts/eval/run_gpqa_pruned_sq_qwen25_protocol.sh
-scripts/eval/deepseek_llama_8b_gpqa_examples.sh
-scripts/eval/tasks/gpqa_qwen25/
-scripts/eval/tasks/gpqa_deepseek_r1/
+## Install
+
+Python 3.10+ with a GPU build of vLLM matching the local CUDA/PyTorch. The
+dataset `Idavidrein/gpqa` is gated: accept its terms on the Hub first. From this
+folder:
+
+```bash
+python -m pip install -r requirements.txt   # lm-eval 0.4.12 from ../lm-evaluation-harness [vllm]
 ```
-
-## Version
-
-The runs that use the same questions for every model are:
-
-| Item | Version |
-| --- | --- |
-| Dataset | `Idavidrein/gpqa` |
-| Main split | `gpqa_main`, task `gpqa_main_n_shot` **2.0**, 448 questions, 5-shot |
-| Diamond split | `gpqa_diamond`, task `gpqa_diamond_n_shot` **2.0**, 198 questions, 5-shot |
-| Harness | `lm-eval` **0.4.9.1** (commits `83e4d0b`, 16 files; `734a9ad`, 9 files) |
-| Score | multiple-choice `acc,none` |
-
-All 29 saved files use that dataset, those task versions, and `lm-eval` 0.4.9.1. No file truncates the split.
-
-A later generative rerun used `lm-eval` **0.4.11** and the vLLM backend (chat template on, no system prompt, seeds `random=0`, `numpy=1234`, `torch=1234`, `fewshot=1234`). Those files still have 448 and 198 questions, but they are not the 0.4.9.1 likelihood score.
-
-## Two protocols
-
-**Qwen2.5 Instruct** (`run_gpqa_qwen25_7b_instruct.sh` and the `*_qwen25_protocol.sh` scripts):
-
-- tasks `gpqa_main_qwen25_cot_zeroshot` and `gpqa_diamond_qwen25_cot_zeroshot`
-- 0-shot, greedy (`temperature=0`, `do_sample=False`), one sample
-- `max_gen_toks=8192`, `max_model_len=16384`
-- prompt ends with `Let's think step by step:`
-- score `exact_match,strict-match` after extracting the last `\boxed{}`, `Answer:`, `The answer is`, or `(A)`–`(D)` following `</think>` when present
-
-**DeepSeek-R1 report** (`run_gpqa_deepseek_r1_llama8b.sh`):
-
-- tasks `gpqa_main_deepseek_r1_cot` and `gpqa_diamond_deepseek_r1_cot`
-- 0-shot, `temperature=0.6`, `top_p=0.95`, `do_sample=True`
-- prompt asks for `\boxed{}` and prefixes `<think>`
-- report Average Pass@1 uses 64 samples; the launcher default is `N_SAMPLES=1`
-
-`gpqa.sh` is a separate 5-shot greedy sweep (`gpqa_diamond_n_shot` by default).
-`deepseek_llama_8b_gpqa_examples.sh` is a 5-shot sampled `gpqa` group command.
-Neither of those two produced the complete main/diamond result files checked below.
-
-## What the saved result files used
-
-Twenty complete result files were checked (10 models × main and/or diamond).
-Nineteen of them are the Qwen2.5 greedy protocol, one sample, full split
-(448 or 198). One file is the DeepSeek-R1 Diamond task with sampling turned on
-and `repeats=1`, so it is a single sample, not Average Pass@1 over 64.
-
-| Checkpoint | Split | Task | strict-match or pass@1 |
-| --- | --- | --- | --- |
-| Qwen2.5-7B-Instruct | main | qwen25 | 33.93 |
-| Qwen2.5-7B-Instruct | diamond | qwen25 | 33.84 |
-| DeepSeek-R1-Distill-Llama-8B | main | qwen25 | 31.25 |
-| DeepSeek-R1-Distill-Llama-8B | diamond | qwen25 | 26.77 |
-| DeepSeek-R1-Distill-Llama-8B | diamond | stock cot_zeroshot | 0.00 strict / 25.25 flexible |
-| DeepSeek-R1-Distill-Llama-8B | diamond | deepseek, N=1 | 42.93 pass@1 |
-| Llama-8B SmoothQuant W8A8 | main / diamond | qwen25 | 28.57 / 31.82 |
-| Qwen-7B SmoothQuant W8A8 | main / diamond | qwen25 | 34.38 / 32.83 |
-| Qwen3-8B SmoothQuant W8A8 | main / diamond | qwen25 | 47.99 / 49.49 |
-| deepseek_qwen_7b_wanda_50 | main / diamond | qwen25 | 17.63 / 14.14 |
-| deepseek_qwen_7b_gblm_50 | main / diamond | qwen25 | 14.06 / 13.13 |
-| deepseek_qwen_7b_sparsegpt_50 | main / diamond | qwen25 | 12.05 / 11.62 |
-| deepseek_qwen_1_5b_gblm_50 | main / diamond | qwen25 | 5.13 / 4.55 |
-
-Scores are percentages. The stock `gpqa_diamond_cot_zeroshot` row only accepts
-`The answer is (X)`. DeepSeek-R1 answers in `\boxed{}` were scored as misses
-(`strict-match=0`). The Qwen2.5 task files exist to avoid that miss.
-
-## What is not comparable
-
-- Instruct and distilled checkpoints in the table above share the greedy
-  Qwen2.5 task. That is one protocol. It is not the DeepSeek-R1 report
-  protocol (temperature 0.6, 64 samples, boxed prompt). The single sampled
-  Diamond file (42.93) cannot be averaged with the greedy files.
-- `N_SAMPLES` defaults to 1 in `run_gpqa_deepseek_r1_llama8b.sh`. The report
-  number needs `N_SAMPLES=64`.
-- Choice order is `random.shuffle` inside `process_docs`, using the process
-  RNG after `random_seed=0`. A different harness version or an extra RNG call
-  before document processing changes which letter is correct.
-- On several Qwen2.5-protocol files, `strict-match` and `flexible-extract`
-  disagree (Qwen3-8B SmoothQuant Diamond 49.49 vs 39.39). Report one filter
-  for every row.
-- These scripts record the Hub id that was loaded. They do not check that a
-  pruned checkpoint's parent weights match the dense model it is compared with.
 
 ## Run
 
 ```bash
-python -m pip install -r requirements.txt
+# 1. dense parent (--model and --parent are the same)
+python evaluate.py --model Qwen/Qwen2.5-3B-Instruct --revision <sha> \
+  --parent Qwen/Qwen2.5-3B-Instruct --parent-revision <sha> --output runs/qwen25_3b/dense
 
-# Qwen2.5-7B-Instruct, main and diamond, greedy 0-shot
-GPUS=0,1,2,3 bash scripts/eval/run_gpqa_qwen25_7b_instruct.sh
+# 2. compressed variants, same --parent, with what each should be
+python evaluate.py --model <org>/Qwen2.5-3B-Instruct-SparseGPT-50pct --revision <sha> \
+  --parent Qwen/Qwen2.5-3B-Instruct --parent-revision <sha> --expect-sparsity 0.5 \
+  --output runs/qwen25_3b/sparsegpt
+python evaluate.py --model Qwen/Qwen2.5-3B-Instruct-GPTQ-Int4 --revision <sha> \
+  --parent Qwen/Qwen2.5-3B-Instruct --parent-revision <sha> --expect-bits 4 \
+  --output runs/qwen25_3b/gptq_int4
+#   pruned 50%: --expect-sparsity 0.5   GPTQ/AWQ-Int4: --expect-bits 4   SmoothQuant W8A8: --expect-bits 8
 
-# DeepSeek-R1 Diamond, report sampling; set 64 for Average Pass@1
-ONLY=diamond N_SAMPLES=64 GPUS=0,1,2,3 \
-  bash scripts/eval/run_gpqa_deepseek_r1_llama8b.sh
-
-# Same greedy Qwen2.5 task on a DeepSeek-R1 checkpoint
-GPUS=0,1,2,3 bash scripts/eval/run_gpqa_deepseek_r1_llama8b_qwen25_protocol.sh
+# 3. pair check
+python check_pair.py runs/qwen25_3b/dense runs/qwen25_3b/sparsegpt
 ```
 
-`ONLY=main`, `ONLY=diamond`, or `ONLY=both`. `LIMIT` truncates the split.
-Rerun every model you compare with the same script, GPU count, and filter.
+Hub IDs need `--revision` / `--parent-revision` as full 40-character commit
+SHAs; local directories need none. `--tensor-parallel-size` and
+`--gpu-memory-utilization` are recorded in the manifest. `--smoke N` evaluates
+the first N questions of each split and is recorded in the protocol, so
+`check_pair.py` refuses to pair a smoke run with a full run. Existing output
+directories are refused.
+
+## Settings
+
+| Setting | Value |
+| --- | --- |
+| Dataset | `Idavidrein/gpqa`, revision `83022cefff930aea54f654c0b282e74b9eeda5c6` |
+| Splits | `gpqa_diamond` (198 questions) and `gpqa_main` (448), both run for every model |
+| Tasks | `gpqa_diamond_qwen25_report`, `gpqa_main_qwen25_report` |
+| Shots | 0 |
+| Prompt | OpenAI simple-evals GPQA prompt (ends with `Answer: $LETTER`), no system prompt |
+| Choice order | simple-evals permutation from `random.Random(0)`, one `rng.sample` per question |
+| Chat template | the dense parent's tokenizer and chat template |
+| Decoding | greedy (temperature 0, top-p 1, one sample) |
+| Backend | lm-eval 0.4.12 + vLLM, bfloat16, no cache |
+| Seeds | 0 (vLLM, random, numpy, torch, few-shot) |
+
+The generation budget depends on the dense parent's family, which is read from
+the parent checkpoint (config `model_type` and chat template), not from a flag.
+Every variant uses its parent's budget:
+
+| Parent family | max_gen_toks | max_model_len | Thinking |
+| --- | ---: | ---: | --- |
+| Qwen2.5 (Instruct) | 8,192 | 16,384 | n/a |
+| DeepSeek-R1-Distill (Qwen, Llama) | 32,768 | 40,960 | on (template opens `<think>`) |
+| Qwen3 | 32,768 | 40,960 | on (template default) |
+
+## Metrics
+
+Both filters read only the text after the last `</think>` when present.
+
+- `exact_match,strict-match` (primary; `paper_metric` in the manifest): the
+  first `Answer: X` match (simple-evals regex) must equal the correct letter.
+- `exact_match,flexible-extract`: the last match of `Answer: X`, `\boxed{X}`,
+  `The answer is X` or `(X)`, in that order of preference.
+
+`evaluate.py` reports both as percentages per split, plus the number of
+responses that reached `max_gen_toks` and the number with no strict-match answer.
+
+## Checkpoint checks
+
+Before loading a model, `common/fairness.py` checks that `--model` was
+compressed from `--parent` (token-embedding table equal to the parent's), that
+the config declares `--expect-bits`, and that sampled weight sparsity is within
+0.02 of `--expect-sparsity`. A failing checkpoint is refused unless
+`--allow-unverified-parent` is given, which marks the manifest
+`fair_checkpoint: false`.
+
+`check_pair.py` compares the protocol fingerprints and evaluated questions,
+checks that the baseline is the dense parent and the variant names the same
+parent, requires both checkpoints to have passed their checks, rescores every
+response with both filters, and checks that both runs saw the same questions,
+choice orders and rendered prompts.
+
+## Files written
+
+Each `--output` directory gets `manifest.json` (protocol, model and parent
+identity, checkpoint checks, hardware, scores, status), `items.json` (evaluated
+question IDs), `samples_gpqa_diamond_qwen25_report.jsonl` and
+`samples_gpqa_main_qwen25_report.jsonl` (one line per question and filter) and
+`results.json` (lm-eval aggregate output).
